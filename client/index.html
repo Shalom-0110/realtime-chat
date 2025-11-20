@@ -1,0 +1,214 @@
+<!doctype html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>Realtime Chat Demo</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        :root {
+            --bg: #B4C9EA;
+            --bubble: #ffffff;
+            --muted: #333;
+            --accent: #6b46c1;
+            font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+        }
+
+        html,
+        body {
+            height: 100%;
+            margin: 0;
+        }
+
+        body {
+            background: linear-gradient(135deg, var(--bg), #dfe7ff);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+
+        .app {
+            width: 100%;
+            max-width: 720px;
+            height: 80vh;
+            background: rgba(255, 255, 255, 0.08);
+            border-radius: 14px;
+            box-shadow: 0 8px 30px rgba(16, 24, 40, 0.12);
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            backdrop-filter: blur(6px);
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .header {
+            padding: 16px;
+            font-weight: 700;
+            color: var(--muted);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent);
+            border-bottom: 1px solid rgba(0, 0, 0, 0.05);
+        }
+
+        .messages {
+            flex: 1;
+            padding: 18px;
+            overflow: auto;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            background: transparent;
+        }
+
+        .bubble {
+            max-width: 75%;
+            background: var(--bubble);
+            color: #111;
+            padding: 10px 14px;
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(16, 24, 40, 0.06);
+            font-size: 14px;
+            line-height: 1.3;
+        }
+
+        .meta {
+            font-size: 12px;
+            color: #666;
+            margin-top: 6px
+        }
+
+        .row {
+            display: flex;
+            flex-direction: column
+        }
+
+        .status {
+            align-self: center;
+            font-size: 12px;
+            color: #444;
+            background: rgba(255, 255, 255, 0.7);
+            padding: 6px 10px;
+            border-radius: 999px;
+            opacity: 0.9;
+        }
+
+        .inputbar {
+            padding: 12px;
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            border-top: 1px solid rgba(0, 0, 0, 0.05);
+            background: linear-gradient(0deg, rgba(255, 255, 255, 0.02), transparent);
+        }
+
+        input[type="text"] {
+            flex: 1;
+            padding: 10px 12px;
+            border-radius: 10px;
+            border: 1px solid rgba(0, 0, 0, 0.06);
+            font-size: 14px;
+        }
+
+        button {
+            padding: 10px 14px;
+            border-radius: 10px;
+            border: 0;
+            font-weight: 600;
+            cursor: pointer;
+            background: var(--accent);
+            color: white;
+        }
+
+        .small {
+            font-size: 12px;
+            color: #555
+        }
+    </style>
+</head>
+
+<body>
+    <div class="app">
+        <div class="header">
+            <div>Realtime Chat</div>
+            <div class="small">ws://localhost:6789</div>
+        </div>
+
+        <div id="messages" class="messages"></div>
+
+        <div class="inputbar">
+            <input id="name" type="text" placeholder="Your name (optional)" />
+            <input id="msg" type="text" placeholder="Type a message and press Enter" />
+            <button id="send">Send</button>
+        </div>
+    </div>
+
+    <script>
+  const ws = new WebSocket("ws://localhost:6789");
+
+  const messagesEl = document.getElementById("messages");
+  const inputMsg = document.getElementById("msg");
+  const inputName = document.getElementById("name");
+  const sendBtn = document.getElementById("send");
+
+  function addBubble(content, meta) {
+    const wrap = document.createElement("div");
+    wrap.className = "row";
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = content;
+    wrap.appendChild(bubble);
+    if (meta){
+      const m = document.createElement("div");
+      m.className = "meta";
+      m.textContent = meta;
+      wrap.appendChild(m);
+    }
+    messagesEl.appendChild(wrap);
+    messagesEl.scrollTop = messagesEl.scrollHeight;
+  }
+
+  ws.addEventListener("open", () => {
+    addBubble("Connected to server", "system");
+  });
+
+  ws.addEventListener("message", (ev) => {
+    let data = {};
+    try { data = JSON.parse(ev.data); } catch(e){ data = {type:'message', message:ev.data}; }
+
+    if (data.type === "status") {
+      const text = data.message + (data.time ? ` • ${new Date(data.time).toLocaleTimeString()}` : "");
+      const s = document.createElement("div");
+      s.className = "status";
+      s.textContent = text;
+      messagesEl.appendChild(s);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return;
+    }
+
+    const who = data.name || "Anon";
+    const time = data.time ? new Date(data.time).toLocaleTimeString() : "";
+    addBubble(data.message, `${who} • ${time}`);
+  });
+
+  ws.addEventListener("close", () => {
+    addBubble("Disconnected from server", "system");
+  });
+
+  function sendMessage(){
+    const text = inputMsg.value.trim();
+    if (!text || ws.readyState !== WebSocket.OPEN) return;
+    const payload = { type: "message", name: inputName.value || "You", message: text };
+    ws.send(JSON.stringify(payload));
+    inputMsg.value = "";
+  }
+
+  sendBtn.onclick = sendMessage;
+  inputMsg.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") sendMessage();
+  });
+    </script>
+</body>
+
+</html>

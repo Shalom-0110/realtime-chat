@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.pyc
+venv/
+.env
+.env.*
+
+# Editor / OS
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Node / build
+node_modules/
+dist/
+build/
+
+# logs and DB
+*.log
+*.sqlite
+EOF
