@@ -1,50 +1,150 @@
-# server.py
 import asyncio
 import websockets
 import json
+import uuid
 from datetime import datetime
+from websockets.exceptions import ConnectionClosedOK, ConnectionClosedError
 
 clients = set()
+
+ids = {}      
+by_id = {}    
+names = {}    
+by_name = {}  
 
 def now_iso():
     return datetime.utcnow().isoformat() + "Z"
 
+async def safe_send(ws, message):
+    try:
+        await ws.send(message)
+    except (ConnectionClosedOK, ConnectionClosedError, RuntimeError):
+        pass
+
 async def broadcast(message: str):
-    # Send message to all connected clients.
     if not clients:
         return
-    await asyncio.gather(*(ws.send(message) for ws in clients), return_exceptions=True)
+    await asyncio.gather(*(safe_send(ws, message) for ws in list(clients)), return_exceptions=True)
 
-async def handler(websocket, path):
+async def handler(websocket, path=None):
+    # assigning a server-side id right here 
+    client_id = str(uuid.uuid4())
     clients.add(websocket)
-    try:
-        join = {"type": "status", "message": "A user joined", "time": now_iso()}
-        await broadcast(json.dumps(join))
+    ids[websocket] = client_id
+    by_id[client_id] = websocket
+    names[websocket] = None
 
+    # "this is me"
+    await safe_send(websocket, json.dumps({
+        "type": "connected",
+        "client_id": client_id,
+        "time": now_iso()
+    }))
+
+    try:
         async for raw in websocket:
             try:
                 data = json.loads(raw)
             except:
-                data = {"type": "message", "name": "Anon", "message": raw}
+                data = {"type": "message", "message": raw}
 
-            data["time"] = now_iso()
+            typ = data.get("type", "message")
 
-            await broadcast(json.dumps(data))
-    except websockets.exceptions.ConnectionClosed:
+            if typ == "join":
+                requested = (data.get("name") or "").strip()
+                if not requested:
+                    stored_name = f"User-{client_id[:6]}"
+                else:
+                    base = requested
+                    stored_name = base
+                    i = 1
+                    while stored_name in by_name:
+                        stored_name = f"{base}{i}"
+                        i += 1
+
+                names[websocket] = stored_name
+                by_name[stored_name] = websocket
+
+                await safe_send(websocket, json.dumps({
+                    "type": "ack",
+                    "action": "join",
+                    "status": "ok",
+                    "client_id": client_id,
+                    "name": stored_name,
+                    "online": list(by_name.keys()),
+                    "time": now_iso()
+                }))
+
+                await broadcast(json.dumps({
+                    "type": "status",
+                    "message": f"{stored_name} joined the chat",
+                    "time": now_iso()
+                }))
+                continue
+
+            if typ == "list":
+                await safe_send(websocket, json.dumps({
+                    "type": "list",
+                    "online": list(by_name.keys()),
+                    "time": now_iso()
+                }))
+                continue
+
+            if typ == "message":
+                sender_id = ids.get(websocket)
+                sender_name = names.get(websocket) or f"User-{sender_id[:6]}"
+                msg_text = data.get("message", "")
+
+                payload = {
+                    "type": "message",
+                    "from_id": sender_id,
+                    "from_name": sender_name,
+                    "message": msg_text,
+                    "time": now_iso(),
+                    "private": False
+                }
+
+                await broadcast(json.dumps(payload))
+                continue
+
+            await safe_send(websocket, json.dumps({
+                "type": "error",
+                "message": f"unknown message type: {typ}",
+                "time": now_iso()
+            }))
+
+    except (ConnectionClosedOK, ConnectionClosedError):
         pass
     finally:
-        clients.remove(websocket)
-        leave = {"type": "status", "message": "A user left", "time": now_iso()}
-        await broadcast(json.dumps(leave))
+        if websocket in clients:
+            clients.remove(websocket)
+
+        client_id = ids.pop(websocket, None)
+        if client_id:
+            by_id.pop(client_id, None)
+
+        name = names.pop(websocket, None)
+        if name:
+            by_name.pop(name, None)
+            await broadcast(json.dumps({
+                "type": "status",
+                "message": f"{name} left the chat",
+                "time": now_iso()
+            }))
+        else:
+            await broadcast(json.dumps({
+                "type": "status",
+                "message": f"User-{(client_id or '')[:6]} disconnected",
+                "time": now_iso()
+            }))
+
+async def main():
+    async with websockets.serve(
+        handler, "localhost", 6789,
+        ping_interval=20, ping_timeout=20
+    ):
+        print("WebSocket server listening on ws://localhost:6789")
+        await asyncio.Future()  
 
 if __name__ == "__main__":
-    start_server = websockets.serve(
-        handler, "localhost", 6789,
-        ping_interval=20, 
-        ping_timeout=20
-    )
-
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(start_server)
-    print("WebSocket server listening on ws://localhost:6789")
-    loop.run_forever()
+    asyncio.run(main())
