@@ -158,8 +158,16 @@
     </div>
 
     <script>
-        const ws = new WebSocket("ws://localhost:6789");
+       let ws;
 
+        if (window.location.hostname === "localhost") {
+            // local development
+            ws = new WebSocket("ws://localhost:6789");
+        } else {
+            // production on Render
+            ws = new WebSocket("wss://your-render-service.onrender.com");
+        }
+        
         const messagesEl = document.getElementById("messages");
         const inputMsg = document.getElementById("msg");
         const inputName = document.getElementById("name");

@@ -1,3 +1,4 @@
+import os
 import asyncio
 import websockets
 import json
@@ -139,11 +140,14 @@ async def handler(websocket, path=None):
             }))
 
 async def main():
+    host = "0.0.0.0"
+    port = int(os.environ.get("PORT", "6789"))
+
     async with websockets.serve(
-        handler, "localhost", 6789,
+        handler, host, port,
         ping_interval=20, ping_timeout=20
     ):
-        print("WebSocket server listening on ws://localhost:6789")
+        print(f"WebSocket server listening on ws://{host}:{port}")
         await asyncio.Future()  
 
 if __name__ == "__main__":
